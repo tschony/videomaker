@@ -20,6 +20,9 @@ const els = {
   summaryLine: document.getElementById("summaryLine"),
   finalOutputLine: document.getElementById("finalOutputLine"),
   imageRoleLine: document.getElementById("imageRoleLine"),
+  audioPlayerBox: document.getElementById("audioPlayerBox"),
+  audioNowPlaying: document.getElementById("audioNowPlaying"),
+  audioPlayer: document.getElementById("audioPlayer"),
   blockers: document.getElementById("blockers"),
   warnings: document.getElementById("warnings"),
   tracksBody: document.getElementById("tracksBody"),
@@ -170,6 +173,7 @@ function renderScan(scan) {
     els.shortsImage.value = scan.shorts_image;
   }
   currentTracks = scan.tracks || [];
+  resetAudioPlayer();
   renderTrackRows();
 }
 
@@ -179,6 +183,7 @@ function renderTrackRows() {
       const reason = track.reasons?.length ? ` (${track.reasons.join(", ")})` : "";
       return `<tr draggable="true" data-path="${escapeHtml(track.path)}">
         <td class="drag-col"><span class="drag-handle" title="Track ziehen" aria-hidden="true">&#8942;&#8942;</span></td>
+        <td class="play-col"><button type="button" class="play-track-btn" data-path="${escapeHtml(track.path)}" data-title="${escapeHtml(track.title)}" ${track.status === "included" ? "" : "disabled"} title="Track abspielen">Play</button></td>
         <td>${index + 1}</td>
         <td>${escapeHtml(track.title)}</td>
         <td>${track.duration_label}</td>
@@ -210,6 +215,33 @@ function imageName(role) {
   if (!role) return "";
   const size = role.width && role.height ? ` · ${role.width}x${role.height}` : "";
   return ` · ${escapeHtml(role.name)}${size}`;
+}
+
+function audioUrl(path) {
+  const url = new URL("/api/media/audio", window.location.origin);
+  url.searchParams.set("path", path);
+  return url.toString();
+}
+
+async function playTrack(path, title) {
+  els.audioPlayerBox.hidden = false;
+  els.audioNowPlaying.textContent = title;
+  els.audioPlayer.src = audioUrl(path);
+  els.audioPlayer.load();
+  try {
+    await els.audioPlayer.play();
+    setStatus("Playing");
+  } catch (error) {
+    setStatus("Preview ready");
+  }
+}
+
+function resetAudioPlayer() {
+  els.audioPlayer.pause();
+  els.audioPlayer.removeAttribute("src");
+  els.audioPlayer.load();
+  els.audioPlayerBox.hidden = currentTracks.length === 0;
+  els.audioNowPlaying.textContent = "Kein Track";
 }
 
 async function loadDefaults() {
@@ -516,7 +548,18 @@ els.pickerOverlay.addEventListener("click", (event) => {
   if (event.target === els.pickerOverlay) closePicker();
 });
 
+els.tracksBody.addEventListener("click", (event) => {
+  const button = event.target.closest(".play-track-btn");
+  if (!button) return;
+  event.preventDefault();
+  playTrack(button.dataset.path, button.dataset.title);
+});
+
 els.tracksBody.addEventListener("dragstart", (event) => {
+  if (event.target.closest(".play-track-btn")) {
+    event.preventDefault();
+    return;
+  }
   const row = event.target.closest("tr[data-path]");
   if (!row) return;
   draggedTrackPath = row.dataset.path;

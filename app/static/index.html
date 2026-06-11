@@ -128,11 +128,19 @@
           <div id="imageRoleLine" class="image-role-line"></div>
           <div id="blockers" class="notice"></div>
           <div id="warnings" class="notice warning"></div>
+          <div id="audioPlayerBox" class="audio-player-box" hidden>
+            <div>
+              <span class="muted">Preview</span>
+              <strong id="audioNowPlaying">Kein Track</strong>
+            </div>
+            <audio id="audioPlayer" controls preload="none"></audio>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th class="drag-col" aria-label="Sort"></th>
+                  <th class="play-col" aria-label="Play"></th>
                   <th>#</th>
                   <th>Titel</th>
                   <th>Dauer</th>

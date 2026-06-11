@@ -34,6 +34,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 jobs: dict[str, dict[str, Any]] = {}
 jobs_lock = Lock()
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".aiff", ".aif"}
 
 
 class ScanRequest(BaseModel):
@@ -132,6 +133,19 @@ def list_fs(path: str | None = None, mode: str = "folder") -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/media/audio")
+def audio_file(path: str) -> FileResponse:
+    try:
+        audio_path = Path(path).expanduser().resolve(strict=False)
+        if audio_path.suffix.lower() not in AUDIO_SUFFIXES:
+            raise ValueError("Unsupported audio file type")
+        if not audio_path.exists() or not audio_path.is_file():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        return FileResponse(audio_path, media_type=audio_media_type(audio_path), filename=audio_path.name)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/fs/mkdir")
@@ -268,3 +282,18 @@ def nearest_existing_path(path: Path) -> Path:
 
 def applescript_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def audio_media_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".wav":
+        return "audio/wav"
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix in {".m4a", ".aac"}:
+        return "audio/aac"
+    if suffix == ".flac":
+        return "audio/flac"
+    if suffix in {".aiff", ".aif"}:
+        return "audio/aiff"
+    return "application/octet-stream"

@@ -377,6 +377,35 @@ button.primary {
   display: block;
 }
 
+.audio-player-box {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1.2fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1012;
+}
+
+.audio-player-box[hidden] {
+  display: none;
+}
+
+.audio-player-box strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-player-box audio {
+  width: 100%;
+  height: 34px;
+}
+
 .table-wrap {
   max-height: 520px;
   overflow: auto;
@@ -407,12 +436,14 @@ th {
 
 td:nth-child(1),
 td:nth-child(2),
-td:nth-child(4),
-td:nth-child(5) {
+td:nth-child(3),
+td:nth-child(5),
+td:nth-child(6) {
   white-space: nowrap;
 }
 
-.drag-col {
+.drag-col,
+.play-col {
   width: 34px;
   padding-right: 0;
   text-align: center;
@@ -444,6 +475,18 @@ tr.drop-before td {
 
 tr.drop-after td {
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.play-track-btn {
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.play-track-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .status-included {
@@ -587,8 +630,13 @@ pre {
   }
 
   .path-control,
-  .mkdir-box {
+  .mkdir-box,
+  .audio-player-box {
     flex-direction: column;
+  }
+
+  .audio-player-box {
+    grid-template-columns: 1fr;
   }
 
   .mkdir-box {
