@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Velvet Video Maker</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Velvet Video Maker</h1>
+          <p>Lokaler Dry-Run und Render fuer Longform, Master-WAV und Shorts.</p>
+        </div>
+        <div id="statusBadge" class="badge">Idle</div>
+      </header>
+
+      <section class="workspace">
+        <form id="projectForm" class="panel">
+          <div class="panel-header">
+            <h2>Projekt</h2>
+            <button type="button" id="loadDefaultsBtn">Defaults</button>
+          </div>
+
+          <label>
+            Source Folder
+            <span class="path-control">
+              <input id="sourceDir" name="source_dir" autocomplete="off" />
+              <button type="button" class="browse-btn" data-target="sourceDir" data-mode="folder">Browse</button>
+            </span>
+          </label>
+          <div class="row">
+            <label>
+              COMP-ID
+              <input id="compId" name="comp_id" autocomplete="off" />
+            </label>
+            <label>
+              Titel
+              <input id="title" name="title" autocomplete="off" />
+            </label>
+          </div>
+          <label>
+            Output Base Folder
+            <span class="path-control">
+              <input id="outputDir" name="output_dir" autocomplete="off" />
+              <button type="button" class="browse-btn" data-target="outputDir" data-mode="folder" data-create="true">Browse</button>
+            </span>
+          </label>
+          <div class="row">
+            <label>
+              16:9 Bild
+              <span class="path-control">
+                <input id="longformImage" name="longform_image" autocomplete="off" placeholder="Optional, auto wenn im Ordner vorhanden" />
+                <button type="button" class="browse-btn" data-target="longformImage" data-mode="image">Browse</button>
+              </span>
+            </label>
+            <label>
+              9:16 Bild
+              <span class="path-control">
+                <input id="shortsImage" name="shorts_image" autocomplete="off" placeholder="Optional, auto wenn im Ordner vorhanden" />
+                <button type="button" class="browse-btn" data-target="shortsImage" data-mode="image">Browse</button>
+              </span>
+            </label>
+          </div>
+
+          <div class="control-section transition-section">
+            <div class="control-header">
+              <h2>Übergänge</h2>
+              <span id="transitionValue" class="value-pill">1.5s</span>
+            </div>
+            <div class="segmented" role="radiogroup" aria-label="Transition mode">
+              <label>
+                <input type="radio" name="transitionMode" value="no_crossfade" />
+                <span>No</span>
+              </label>
+              <label>
+                <input type="radio" name="transitionMode" value="micro_fade" />
+                <span>Micro</span>
+              </label>
+              <label>
+                <input type="radio" name="transitionMode" value="smooth_crossfade" checked />
+                <span>Smooth</span>
+              </label>
+            </div>
+            <div class="slider-row">
+              <input id="transitionSeconds" type="range" min="0" max="4" step="0.5" value="1.5" />
+            </div>
+            <div id="transitionPreview" class="transition-preview" aria-hidden="true">
+              <span class="wave wave-a"></span>
+              <span class="overlap-zone"></span>
+              <span class="wave wave-b"></span>
+            </div>
+          </div>
+
+          <div class="toggles compact-toggles">
+            <label class="check">
+              <input id="silenceTrim" type="checkbox" checked />
+              <span>Silence trim</span>
+            </label>
+            <label class="check">
+              <input id="droneScan" type="checkbox" checked />
+              <span>Drone scan</span>
+            </label>
+            <label class="check">
+              <input id="placeholderImages" type="checkbox" checked />
+              <span>Placeholder</span>
+            </label>
+            <label class="check">
+              <input id="moveSourcesAfterRender" type="checkbox" checked />
+              <span>Move originals</span>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="button" id="scanBtn">Dry-Run</button>
+            <button type="button" id="renderBtn" class="primary" disabled>Render starten</button>
+          </div>
+        </form>
+
+        <section class="panel report-panel">
+          <div class="panel-header">
+            <h2>Dry-Run</h2>
+            <span id="summaryLine" class="muted">Noch nicht gescannt</span>
+          </div>
+          <div id="finalOutputLine" class="final-output-line"></div>
+          <div id="imageRoleLine" class="image-role-line"></div>
+          <div id="blockers" class="notice"></div>
+          <div id="warnings" class="notice warning"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="drag-col" aria-label="Sort"></th>
+                  <th>#</th>
+                  <th>Titel</th>
+                  <th>Dauer</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="tracksBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Render Job</h2>
+          <span id="jobStatus" class="muted">Kein Job</span>
+        </div>
+        <pre id="jobLog"></pre>
+        <div id="result" class="result"></div>
+      </section>
+    </main>
+
+    <div id="pickerOverlay" class="picker-overlay" hidden>
+      <div class="picker">
+        <div class="picker-header">
+          <div>
+            <h2 id="pickerTitle">Browse</h2>
+            <p id="pickerPath" class="muted"></p>
+          </div>
+          <button type="button" id="pickerCloseBtn">Close</button>
+        </div>
+        <div class="picker-toolbar">
+          <button type="button" id="pickerParentBtn">Up</button>
+          <button type="button" id="pickerSelectBtn">Select this folder</button>
+          <span id="mkdirBox" class="mkdir-box">
+            <input id="newFolderName" autocomplete="off" placeholder="New folder name" />
+            <button type="button" id="mkdirBtn">Create</button>
+          </span>
+        </div>
+        <div id="pickerError" class="notice"></div>
+        <div id="pickerEntries" class="picker-list"></div>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

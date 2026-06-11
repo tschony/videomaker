@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Local render/source folders must stay off GitHub.
+01_UNSORTED/
+01_TRACKS/
+generated_assets/
+audio/
+stems/
+shorts/
+visuals/
+reports/
+sources/
+*.wav
+*.mp4
+*.mov
+*.m4a
+*.mp3
