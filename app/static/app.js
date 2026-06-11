@@ -16,6 +16,7 @@ const els = {
   scanBtn: document.getElementById("scanBtn"),
   renderBtn: document.getElementById("renderBtn"),
   statusBadge: document.getElementById("statusBadge"),
+  runtimeBanner: document.getElementById("runtimeBanner"),
   summaryLine: document.getElementById("summaryLine"),
   finalOutputLine: document.getElementById("finalOutputLine"),
   imageRoleLine: document.getElementById("imageRoleLine"),
@@ -55,6 +56,10 @@ const autoImages = {
 let lastScanReady = false;
 let currentTracks = [];
 let draggedTrackPath = "";
+let runtime = {
+  nativeDialogAvailable: false,
+  localBrowser: false,
+};
 
 function formPayload() {
   return {
@@ -218,6 +223,45 @@ async function loadDefaults() {
   setStatus("Idle");
 }
 
+async function loadRuntime() {
+  try {
+    const data = await api("/api/runtime");
+    runtime = {
+      nativeDialogAvailable: Boolean(data.native_dialog_available),
+      localBrowser: isLocalBrowser(),
+      platform: data.platform,
+    };
+  } catch (error) {
+    runtime = {
+      nativeDialogAvailable: false,
+      localBrowser: isLocalBrowser(),
+      platform: "unknown",
+    };
+  }
+  renderRuntimeBanner();
+}
+
+function isLocalBrowser() {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function renderRuntimeBanner() {
+  if (runtime.localBrowser && runtime.nativeDialogAvailable) {
+    els.runtimeBanner.hidden = true;
+    els.runtimeBanner.textContent = "";
+    return;
+  }
+
+  els.runtimeBanner.hidden = false;
+  if (!runtime.localBrowser) {
+    els.runtimeBanner.innerHTML =
+      '<strong>Cloud-Demo:</strong> Native Finder-Fenster und lokale WAV/MP4-Renderjobs funktionieren nur, wenn die App auf deinem Mac unter <code>http://127.0.0.1:8787</code> laeuft.';
+    return;
+  }
+  els.runtimeBanner.innerHTML =
+    '<strong>Native Finder nicht verfuegbar:</strong> Diese Funktion braucht macOS und <code>osascript</code>.';
+}
+
 async function scan() {
   setStatus("Scanning");
   els.scanBtn.disabled = true;
@@ -317,6 +361,15 @@ async function openPicker(button) {
 }
 
 async function chooseNativePath(button) {
+  if (!runtime.localBrowser || !runtime.nativeDialogAvailable) {
+    setStatus("Local only");
+    showNotice(els.warnings, [
+      runtime.localBrowser
+        ? "Native Finder-Dialog ist in dieser Laufzeit nicht verfügbar."
+        : "Du bist auf der Vercel-URL. Der native macOS-Finder kann nur von der lokalen App auf deinem Mac geöffnet werden: http://127.0.0.1:8787",
+    ]);
+    return;
+  }
   const targetId = button.dataset.target;
   const mode = button.dataset.mode || "folder";
   const currentPath = els[targetId].value.trim() || pickerStartPath(targetId);
@@ -349,9 +402,8 @@ async function chooseNativePath(button) {
     }
     setStatus("Idle");
   } catch (error) {
-    setStatus("Fallback");
-    showNotice(els.warnings, [`Native Finder dialog nicht verfügbar: ${error.message}. Interner Browser geöffnet.`]);
-    await openPicker(button);
+    setStatus("Finder error");
+    showNotice(els.warnings, [`Native Finder dialog nicht verfügbar: ${error.message}`]);
   }
 }
 
@@ -503,10 +555,14 @@ els.tracksBody.addEventListener("dragend", () => {
   clearDropState();
 });
 
-updateTransitionControl();
-setRenderReady(false);
+async function boot() {
+  updateTransitionControl();
+  setRenderReady(false);
+  await loadRuntime();
+  await loadDefaults();
+}
 
-loadDefaults().catch((error) => {
+boot().catch((error) => {
   setStatus("Error");
   showNotice(els.blockers, [error.message]);
 });

@@ -18,6 +18,11 @@ Danach im Browser oeffnen:
 http://127.0.0.1:8787
 ```
 
+Wichtig: Die App muss fuer native macOS-Finder-Dialoge und lokale Renderjobs
+auf dem Mac laufen. Eine Vercel-/Cloud-URL kann keine lokalen Ordner im Finder
+oeffnen und hat keinen Zugriff auf lokale WAVs, MP4s oder `ffmpeg` auf deinem
+Mac.
+
 Optional kann die Velvet-Meridian-Projektwurzel gesetzt werden:
 
 ```bash

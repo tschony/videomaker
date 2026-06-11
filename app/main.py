@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import platform
 from pathlib import Path
+import shutil
 import subprocess
 from threading import Lock, Thread
 from typing import Any
@@ -86,6 +88,17 @@ def defaults() -> dict[str, Any]:
     }
 
 
+@app.get("/api/runtime")
+def runtime() -> dict[str, Any]:
+    native_dialog_available = platform.system() == "Darwin" and shutil.which("osascript") is not None
+    return {
+        "platform": platform.system(),
+        "project_root": str(PROJECT_ROOT),
+        "native_dialog_available": native_dialog_available,
+        "native_dialog_reason": "" if native_dialog_available else "Native Finder dialogs require this app to run locally on macOS.",
+    }
+
+
 @app.get("/api/fs/list")
 def list_fs(path: str | None = None, mode: str = "folder") -> dict[str, Any]:
     requested = Path(path).expanduser() if path else PROJECT_ROOT
@@ -140,6 +153,8 @@ def mkdir(req: MkdirRequest) -> dict[str, str]:
 @app.post("/api/dialog/choose")
 def choose_path(req: DialogRequest) -> dict[str, str | None]:
     try:
+        if platform.system() != "Darwin" or shutil.which("osascript") is None:
+            raise RuntimeError("Native Finder dialogs are only available when the app runs locally on macOS.")
         start = nearest_existing_path(Path(req.current_path).expanduser() if req.current_path else PROJECT_ROOT)
         prompt = req.prompt or ("Bild auswählen" if req.mode == "image" else "Ordner auswählen")
         if req.mode == "image":
