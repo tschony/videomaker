@@ -121,6 +121,18 @@ def public_title(path: Path) -> str:
     return title.strip() or path.stem
 
 
+def natural_parts(text: str) -> tuple[tuple[int, int | str], ...]:
+    parts: list[tuple[int, int | str]] = []
+    for part in re.split(r"(\d+)", text.lower()):
+        if not part:
+            continue
+        if part.isdigit():
+            parts.append((0, int(part)))
+        else:
+            parts.append((1, part))
+    return tuple(parts)
+
+
 def source_id_from_path(path: Path) -> str:
     match = re.search(r"__([0-9a-fA-F-]{36})$", path.stem)
     if match:
@@ -129,10 +141,17 @@ def source_id_from_path(path: Path) -> str:
     return match.group(1) if match else safe_slug(path.stem)
 
 
-def order_key(path: Path) -> tuple[int, str, str]:
-    m = re.match(r"^\s*(\d+)\.", path.name)
-    order = int(m.group(1)) if m else 9999
-    return order, public_title(path).lower(), path.name.lower()
+def order_key(path: Path) -> tuple[int, int, tuple[tuple[int, int | str], ...], tuple[tuple[int, int | str], ...]]:
+    title = public_title(path)
+    leading = re.match(r"^\s*(\d+)(?:[._\-\s]+)", path.name)
+    if leading:
+        return 0, int(leading.group(1)), natural_parts(title), natural_parts(path.name)
+
+    prompt = re.search(r"(?:^|[^A-Za-z0-9])prompt\s*[_\-\s]*(\d+)(?=\D|$)", path.stem, flags=re.IGNORECASE)
+    if prompt:
+        return 1, int(prompt.group(1)), natural_parts(title), natural_parts(path.name)
+
+    return 2, 9999, natural_parts(title), natural_parts(path.name)
 
 
 def sha256_file(path: Path) -> str:
@@ -273,7 +292,7 @@ def scan_project(
         tracks.append(
             {
                 "index": idx,
-                "order": order_key(wav)[0],
+                "order": order_key(wav)[1],
                 "path": str(wav),
                 "name": wav.name,
                 "title": public_title(wav),
