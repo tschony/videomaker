@@ -5,7 +5,7 @@ Lokale Mac-Web-App fuer Velvet-Meridian-Longform-Produktionen.
 ## Start
 
 ```bash
-cd velvet-video-maker
+cd videomaker
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
