@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -382,22 +383,7 @@ def write_tsv(path: Path, headers: list[str], rows: list[list[Any]]) -> None:
         writer.writerows(rows)
 
 
-def detect_edge_silence(path: Path, duration: float) -> tuple[float, float, str]:
-    text = run(
-        [
-            "ffmpeg",
-            "-nostats",
-            "-hide_banner",
-            "-i",
-            str(path),
-            "-af",
-            "silencedetect=noise=-50dB:d=0.5",
-            "-f",
-            "null",
-            "-",
-        ],
-        capture=True,
-    )
+def parse_silence_events(text: str, duration: float) -> list[tuple[float, float]]:
     events: list[tuple[float, float]] = []
     current_start: float | None = None
     for line in text.splitlines():
@@ -408,6 +394,32 @@ def detect_edge_silence(path: Path, duration: float) -> tuple[float, float, str]
         if end and current_start is not None:
             events.append((current_start, float(end.group(1))))
             current_start = None
+    if current_start is not None:
+        events.append((current_start, duration))
+    return events
+
+
+def detect_silence_events(path: Path, duration: float, noise: str = "-50dB", min_duration: float = 0.5) -> list[tuple[float, float]]:
+    text = run(
+        [
+            "ffmpeg",
+            "-nostats",
+            "-hide_banner",
+            "-i",
+            str(path),
+            "-af",
+            f"silencedetect=noise={noise}:d={min_duration:.3f}",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture=True,
+    )
+    return parse_silence_events(text, duration)
+
+
+def detect_edge_silence(path: Path, duration: float) -> tuple[float, float, str]:
+    events = detect_silence_events(path, duration, "-50dB", 0.5)
 
     trim_start = 0.0
     trim_end = duration
@@ -422,6 +434,42 @@ def detect_edge_silence(path: Path, duration: float) -> tuple[float, float, str]
             trim_end = last_start
             notes.append(f"tail_silence:{duration - last_start:.3f}")
     return trim_start, trim_end, ";".join(notes) if notes else "none"
+
+
+def validate_master_no_internal_silence(master: Path, duration: float, report_path: Path) -> list[dict[str, Any]]:
+    events = detect_silence_events(master, duration, "-50dB", 0.75)
+    gaps: list[dict[str, Any]] = []
+    for start, end in events:
+        silence_duration = end - start
+        if start <= 0.5 or end >= duration - 0.5:
+            continue
+        if silence_duration >= 0.75:
+            gaps.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "duration": silence_duration,
+                    "start_label": duration_label(start),
+                    "end_label": duration_label(end),
+                }
+            )
+
+    write_tsv(
+        report_path,
+        ["start", "end", "duration", "start_label", "end_label", "decision"],
+        [
+            [
+                f"{gap['start']:.3f}",
+                f"{gap['end']:.3f}",
+                f"{gap['duration']:.3f}",
+                gap["start_label"],
+                gap["end_label"],
+                "block_render",
+            ]
+            for gap in gaps
+        ],
+    )
+    return gaps
 
 
 def load_audio_tail(path: Path, start: float, duration: float, sample_rate: int = 8000) -> np.ndarray:
@@ -732,6 +780,223 @@ def move_visual_sources(visuals_dir: Path, comp_id: str, title: str, longform_im
     }
 
 
+def render_longform_mp4(master: Path, longform_image: Path, longform_mp4: Path, duration: float | None = None) -> Path:
+    master_duration = duration if duration is not None else probe_duration(master)
+    longform_mp4.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [
+            "ffmpeg",
+            "-y",
+            "-nostats",
+            "-loglevel",
+            "warning",
+            "-loop",
+            "1",
+            "-framerate",
+            "2",
+            "-i",
+            str(longform_image),
+            "-i",
+            str(master),
+            "-t",
+            f"{master_duration:.3f}",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-vf",
+            "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-r",
+            "2",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "320k",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-movflags",
+            "+faststart",
+            str(longform_mp4),
+        ]
+    )
+    return longform_mp4
+
+
+def comp_parts_from_dir(path: Path) -> tuple[str, str]:
+    match = re.match(r"^(VM_COMP\d{3})_(.+)$", path.name)
+    if not match:
+        return "VM_COMP000", path.name
+    return match.group(1), match.group(2)
+
+
+def find_existing_master(output_dir: Path) -> Path | None:
+    summary_path = output_dir / "RENDER_SUMMARY.json"
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            master = Path(summary.get("master_wav", "")).expanduser()
+            if master.exists():
+                return master
+        except Exception:
+            pass
+
+    candidates = sorted((output_dir / "audio").glob("*master.wav"))
+    if not candidates:
+        candidates = sorted(output_dir.glob("**/*master.wav"))
+    return candidates[0] if candidates else None
+
+
+def find_existing_longform_image(output_dir: Path) -> Path | None:
+    visual_candidates = [
+        path
+        for path in (output_dir / "visuals").glob("*")
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS and "16x9" in path.name.lower()
+    ]
+    if not visual_candidates:
+        visual_candidates = [
+            path
+            for path in (output_dir / "visuals").glob("*")
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        ]
+    for candidate in sorted(visual_candidates, key=lambda item: item.name.lower()):
+        try:
+            if classify_image(candidate)["kind"] == "16:9":
+                return candidate
+        except Exception:
+            continue
+    return visual_candidates[0] if visual_candidates else None
+
+
+def find_existing_longform_mp4(output_dir: Path) -> Path | None:
+    candidates = sorted((output_dir / "visuals").glob("*Longform.mp4"))
+    if not candidates:
+        candidates = sorted((output_dir / "visuals").glob("*.mp4"))
+    return candidates[0] if candidates else None
+
+
+def inspect_longform_repair(output_dir: Path, longform_image: Path | None = None) -> dict[str, Any]:
+    output_dir = output_dir.expanduser().resolve(strict=False)
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if not output_dir.exists() or not output_dir.is_dir():
+        blockers.append(f"Finished COMP folder not found: {output_dir}")
+
+    comp_id, title_slug = comp_parts_from_dir(output_dir)
+    title = title_slug.replace("_", " ")
+    master = find_existing_master(output_dir) if output_dir.exists() else None
+    detected_image = find_existing_longform_image(output_dir) if output_dir.exists() else None
+    selected_image = longform_image.expanduser().resolve(strict=False) if longform_image else detected_image
+    existing_mp4 = find_existing_longform_mp4(output_dir) if output_dir.exists() else None
+
+    if not master:
+        blockers.append("Master WAV not found in finished folder")
+    elif master.exists():
+        try:
+            reports_dir = output_dir / "reports"
+            gaps = validate_master_no_internal_silence(
+                master,
+                probe_duration(master),
+                reports_dir / "LONGFORM_REPAIR_MASTER_SILENCE_GAPS.tsv",
+            )
+            if gaps:
+                first_gap = gaps[0]
+                blockers.append(
+                    "Master WAV contains internal silence: "
+                    f"{first_gap['start_label']}-{first_gap['end_label']} "
+                    f"({first_gap['duration']:.3f}s)"
+                )
+        except Exception as exc:
+            blockers.append(f"Could not validate master silence: {exc}")
+    if selected_image and not selected_image.exists():
+        blockers.append(f"16:9 image not found: {selected_image}")
+    if not selected_image:
+        blockers.append("16:9 image not found in visuals folder")
+    elif selected_image.exists():
+        try:
+            info = classify_image(selected_image)
+            if info["kind"] != "16:9":
+                warnings.append(f"Selected image is {info.get('width')}x{info.get('height')}, not clearly 16:9")
+        except Exception as exc:
+            warnings.append(f"Could not validate image ratio: {exc}")
+
+    target_mp4 = existing_mp4 or output_dir / "visuals" / f"{comp_id}_16x9_{safe_slug(title)}_Longform.mp4"
+    return {
+        "output_dir": str(output_dir),
+        "comp_id": comp_id,
+        "title": title,
+        "master_wav": str(master) if master else "",
+        "longform_image": str(selected_image) if selected_image else "",
+        "current_longform_mp4": str(existing_mp4) if existing_mp4 else "",
+        "target_longform_mp4": str(target_mp4),
+        "blockers": blockers,
+        "warnings": warnings,
+        "ready": not blockers,
+    }
+
+
+def repair_longform(output_dir: Path, longform_image: Path | None = None, backup_existing: bool = True) -> dict[str, Any]:
+    inspection = inspect_longform_repair(output_dir, longform_image)
+    if inspection["blockers"]:
+        raise RuntimeError("; ".join(inspection["blockers"]))
+
+    output_dir = Path(inspection["output_dir"])
+    reports_dir = output_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    master = Path(inspection["master_wav"])
+    image = Path(inspection["longform_image"])
+    target = Path(inspection["target_longform_mp4"])
+    backup_path = ""
+    duration = probe_duration(master)
+    silence_gaps = validate_master_no_internal_silence(master, duration, reports_dir / "LONGFORM_REPAIR_MASTER_SILENCE_GAPS.tsv")
+    if silence_gaps:
+        first_gap = silence_gaps[0]
+        raise RuntimeError(
+            "Internal silence detected in master WAV; refusing longform repair render: "
+            f"{first_gap['start_label']}-{first_gap['end_label']} "
+            f"({first_gap['duration']:.3f}s). See {reports_dir / 'LONGFORM_REPAIR_MASTER_SILENCE_GAPS.tsv'}"
+        )
+
+    if backup_existing and target.exists():
+        backup_dir = output_dir / "backups" / "longform"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = backup_dir / f"{target.stem}_{stamp}{target.suffix}"
+        shutil.move(str(target), str(backup))
+        backup_path = str(backup)
+
+    render_longform_mp4(master, image, target, duration)
+    validation = media_validation_row(target)
+    write_tsv(
+        reports_dir / "LONGFORM_REPAIR_VALIDATION.tsv",
+        ["file", "duration", "width", "height", "video_codec", "pix_fmt", "audio_codec", "sample_rate", "channels"],
+        [validation],
+    )
+    result = {
+        "kind": "longform_repair",
+        "output_dir": str(output_dir),
+        "master_wav": str(master),
+        "longform_image": str(image),
+        "longform_mp4": str(target),
+        "backup": backup_path,
+        "master_duration": round(duration, 3),
+        "master_duration_label": duration_label(duration),
+        "reports": {
+            "validation": str(reports_dir / "LONGFORM_REPAIR_VALIDATION.tsv"),
+            "master_silence_gaps": str(reports_dir / "LONGFORM_REPAIR_MASTER_SILENCE_GAPS.tsv"),
+        },
+    }
+    write_json(reports_dir / "LONGFORM_REPAIR_SUMMARY.json", result)
+    return result
+
+
 def render_project(options: RenderOptions, log: Callable[[str], None] | None = None) -> dict[str, Any]:
     def emit(message: str) -> None:
         if log:
@@ -904,6 +1169,14 @@ def render_project(options: RenderOptions, log: Callable[[str], None] | None = N
     emit("Building master WAV")
     master = build_master_wav(audio_dir, options, rendered_stems, crossfade_seconds)
     master_duration = probe_duration(master)
+    silence_gaps = validate_master_no_internal_silence(master, master_duration, reports_dir / "MASTER_SILENCE_GAPS.tsv")
+    if silence_gaps:
+        first_gap = silence_gaps[0]
+        raise RuntimeError(
+            "Internal silence detected in master WAV: "
+            f"{first_gap['start_label']}-{first_gap['end_label']} "
+            f"({first_gap['duration']:.3f}s). See {reports_dir / 'MASTER_SILENCE_GAPS.tsv'}"
+        )
     audio_validation = probe_streams(master)
     silence_validation = run(
         [
@@ -939,50 +1212,7 @@ def render_project(options: RenderOptions, log: Callable[[str], None] | None = N
     shorts_image = Path(scan["shorts_image"])
     longform_mp4 = visuals_dir / f"{options.comp_id}_16x9_{safe_slug(options.title)}_Longform.mp4"
     emit("Rendering 16:9 longform MP4")
-    run(
-        [
-            "ffmpeg",
-            "-y",
-            "-nostats",
-            "-loglevel",
-            "warning",
-            "-loop",
-            "1",
-            "-framerate",
-            "2",
-            "-i",
-            str(longform_image),
-            "-i",
-            str(master),
-            "-t",
-            f"{master_duration:.3f}",
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-vf",
-            "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-r",
-            "2",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "320k",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-movflags",
-            "+faststart",
-            str(longform_mp4),
-        ]
-    )
+    render_longform_mp4(master, longform_image, longform_mp4, master_duration)
 
     short_picks = choose_short_picks(rendered_stems, options.short_count, options.short_duration)
     shorts_rows: list[list[Any]] = []
@@ -1083,6 +1313,7 @@ def render_project(options: RenderOptions, log: Callable[[str], None] | None = N
             "drone": str(output_dir / "DRONE_ARTIFACT_REPORT.tsv"),
             "transition": str(reports_dir / "TRANSITION_REPORT.tsv"),
             "track_order": str(reports_dir / "TRACK_ORDER.tsv"),
+            "master_silence_gaps": str(reports_dir / "MASTER_SILENCE_GAPS.tsv"),
             "visuals_manifest": visual_package["manifest"],
             "source_manifest": source_package["manifest"] if source_package else "",
             "audio_validation": str(reports_dir / "AUDIO_VALIDATION.txt"),

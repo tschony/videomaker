@@ -153,6 +153,40 @@
         </section>
       </section>
 
+      <section class="panel repair-panel">
+        <div class="panel-header">
+          <h2>Repair</h2>
+          <span id="repairSummary" class="muted">Longform aus fertigem COMP-Ordner neu rendern</span>
+        </div>
+        <div class="row">
+          <label>
+            Fertiger COMP-Ordner
+            <span class="path-control">
+              <input id="repairOutputDir" autocomplete="off" placeholder=".../VM_COMP###_Titel" />
+              <button type="button" class="browse-btn" data-target="repairOutputDir" data-mode="folder">Browse</button>
+            </span>
+          </label>
+          <label>
+            16:9 Ersatzbild
+            <span class="path-control">
+              <input id="repairLongformImage" autocomplete="off" placeholder="Optional, sonst visuals/16x9" />
+              <button type="button" class="browse-btn" data-target="repairLongformImage" data-mode="image">Browse</button>
+            </span>
+          </label>
+        </div>
+        <div class="repair-details" id="repairDetails"></div>
+        <div id="repairNotice" class="notice"></div>
+        <div id="repairWarnings" class="notice warning"></div>
+        <div class="actions repair-actions">
+          <label class="check">
+            <input id="repairBackupExisting" type="checkbox" checked />
+            <span>Backup existing MP4</span>
+          </label>
+          <button type="button" id="inspectRepairBtn">Repair prüfen</button>
+          <button type="button" id="repairLongformBtn" class="primary" disabled>Longform neu rendern</button>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel-header">
           <h2>Render Job</h2>

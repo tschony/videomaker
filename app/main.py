@@ -19,7 +19,9 @@ from .pipeline import (
     RenderOptions,
     default_output_base_dir,
     default_output_dir,
+    inspect_longform_repair,
     next_comp_id,
+    repair_longform,
     render_project,
     scan_project,
 )
@@ -68,6 +70,12 @@ class DialogRequest(BaseModel):
     current_path: str | None = None
     mode: str = "folder"
     prompt: str | None = None
+
+
+class LongformRepairRequest(BaseModel):
+    output_dir: str
+    longform_image: str | None = None
+    backup_existing: bool = True
 
 
 @app.get("/")
@@ -248,6 +256,50 @@ def render(req: RenderRequest) -> dict[str, str]:
                 short_duration=req.short_duration,
             )
             result = render_project(options, log=log)
+            with jobs_lock:
+                jobs[job_id]["status"] = "done"
+                jobs[job_id]["result"] = result
+        except Exception as exc:
+            with jobs_lock:
+                jobs[job_id]["status"] = "error"
+                jobs[job_id]["error"] = str(exc)
+
+    Thread(target=run_job, daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.post("/api/repair/longform/inspect")
+def inspect_repair(req: LongformRepairRequest) -> dict[str, Any]:
+    try:
+        return inspect_longform_repair(
+            Path(req.output_dir).expanduser(),
+            Path(req.longform_image).expanduser() if req.longform_image else None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/repair/longform")
+def repair_longform_job(req: LongformRepairRequest) -> dict[str, str]:
+    job_id = uuid4().hex
+    with jobs_lock:
+        jobs[job_id] = {"status": "queued", "messages": [], "result": None, "error": None}
+
+    def log(message: str) -> None:
+        with jobs_lock:
+            jobs[job_id]["messages"].append(message)
+
+    def run_job() -> None:
+        with jobs_lock:
+            jobs[job_id]["status"] = "running"
+        try:
+            log("Inspecting finished COMP folder")
+            result = repair_longform(
+                output_dir=Path(req.output_dir).expanduser(),
+                longform_image=Path(req.longform_image).expanduser() if req.longform_image else None,
+                backup_existing=req.backup_existing,
+            )
+            log("Longform repair render complete")
             with jobs_lock:
                 jobs[job_id]["status"] = "done"
                 jobs[job_id]["result"] = result

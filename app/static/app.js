@@ -29,6 +29,15 @@ const els = {
   jobStatus: document.getElementById("jobStatus"),
   jobLog: document.getElementById("jobLog"),
   result: document.getElementById("result"),
+  repairOutputDir: document.getElementById("repairOutputDir"),
+  repairLongformImage: document.getElementById("repairLongformImage"),
+  repairBackupExisting: document.getElementById("repairBackupExisting"),
+  repairSummary: document.getElementById("repairSummary"),
+  repairDetails: document.getElementById("repairDetails"),
+  repairNotice: document.getElementById("repairNotice"),
+  repairWarnings: document.getElementById("repairWarnings"),
+  inspectRepairBtn: document.getElementById("inspectRepairBtn"),
+  repairLongformBtn: document.getElementById("repairLongformBtn"),
   pickerOverlay: document.getElementById("pickerOverlay"),
   pickerTitle: document.getElementById("pickerTitle"),
   pickerPath: document.getElementById("pickerPath"),
@@ -59,6 +68,7 @@ const autoImages = {
 let lastScanReady = false;
 let currentTracks = [];
 let draggedTrackPath = "";
+let repairReady = false;
 let runtime = {
   nativeDialogAvailable: false,
   localBrowser: false,
@@ -72,6 +82,14 @@ function formPayload() {
     output_dir: els.outputDir.value.trim(),
     longform_image: els.longformImage.value.trim(),
     shorts_image: els.shortsImage.value.trim(),
+  };
+}
+
+function repairPayload() {
+  return {
+    output_dir: els.repairOutputDir.value.trim(),
+    longform_image: els.repairLongformImage.value.trim(),
+    backup_existing: els.repairBackupExisting.checked,
   };
 }
 
@@ -125,6 +143,11 @@ function setStatus(text) {
 function setRenderReady(ready) {
   lastScanReady = ready;
   els.renderBtn.disabled = !ready;
+}
+
+function setRepairReady(ready) {
+  repairReady = ready;
+  els.repairLongformBtn.disabled = !ready;
 }
 
 function invalidateDryRun(reason = "Dry-Run needed") {
@@ -352,6 +375,9 @@ async function pollJob(jobId) {
     return;
   }
   els.renderBtn.disabled = false;
+  if (repairReady) {
+    els.repairLongformBtn.disabled = false;
+  }
   if (job.status === "error") {
     setStatus("Error");
     els.result.innerHTML = `<div class="notice" style="display:block">${escapeHtml(job.error)}</div>`;
@@ -359,6 +385,19 @@ async function pollJob(jobId) {
   }
   setStatus("Done");
   const result = job.result;
+  if (result.kind === "longform_repair") {
+    els.result.innerHTML = `
+      <strong>Longform neu gerendert</strong>
+      <code>Output: ${escapeHtml(result.output_dir)}</code>
+      <code>Master WAV: ${escapeHtml(result.master_wav)}</code>
+      <code>16:9 Bild: ${escapeHtml(result.longform_image)}</code>
+      <code>Longform MP4: ${escapeHtml(result.longform_mp4)}</code>
+      <code>Dauer: ${escapeHtml(result.master_duration_label)}</code>
+      ${result.backup ? `<code>Backup: ${escapeHtml(result.backup)}</code>` : ""}
+    `;
+    inspectRepair().catch(() => {});
+    return;
+  }
   els.result.innerHTML = `
     <strong>Fertig</strong>
     <code>Output: ${escapeHtml(result.output_dir)}</code>
@@ -372,11 +411,68 @@ async function pollJob(jobId) {
   `;
 }
 
+async function inspectRepair() {
+  setStatus("Inspecting");
+  els.inspectRepairBtn.disabled = true;
+  setRepairReady(false);
+  try {
+    const data = await api("/api/repair/longform/inspect", repairPayload());
+    renderRepairInspection(data);
+    setRepairReady(data.ready);
+    setStatus(data.ready ? "Repair ready" : "Needs input");
+  } catch (error) {
+    setStatus("Error");
+    els.repairDetails.innerHTML = "";
+    showNotice(els.repairNotice, [error.message]);
+    showNotice(els.repairWarnings, []);
+  } finally {
+    els.inspectRepairBtn.disabled = false;
+  }
+}
+
+function renderRepairInspection(data) {
+  els.repairSummary.textContent = data.ready ? "Bereit fuer Longform-Repair" : "Repair braucht noch Eingaben";
+  if (data.longform_image && !els.repairLongformImage.value.trim()) {
+    els.repairLongformImage.value = data.longform_image;
+  }
+  els.repairDetails.innerHTML = `
+    <code>COMP: ${escapeHtml(data.comp_id)} · ${escapeHtml(data.title)}</code>
+    <code>Master: ${escapeHtml(data.master_wav || "nicht gefunden")}</code>
+    <code>16:9 Bild: ${escapeHtml(data.longform_image || "nicht gefunden")}</code>
+    <code>Ziel-MP4: ${escapeHtml(data.target_longform_mp4)}</code>
+    ${data.current_longform_mp4 ? `<code>Aktuelle MP4: ${escapeHtml(data.current_longform_mp4)}</code>` : ""}
+  `;
+  showNotice(els.repairNotice, data.blockers);
+  showNotice(els.repairWarnings, data.warnings);
+}
+
+async function repairLongform() {
+  if (!repairReady) {
+    showNotice(els.repairNotice, ["Bitte zuerst Repair prüfen."]);
+    setStatus("Repair needed");
+    return;
+  }
+  setStatus("Repairing");
+  els.repairLongformBtn.disabled = true;
+  els.result.innerHTML = "";
+  els.jobLog.textContent = "";
+  try {
+    const started = await api("/api/repair/longform", repairPayload());
+    pollJob(started.job_id);
+  } catch (error) {
+    setStatus("Error");
+    showNotice(els.repairNotice, [error.message]);
+    els.repairLongformBtn.disabled = false;
+  }
+}
+
 function pickerStartPath(targetId) {
   const current = els[targetId].value.trim();
   if (current) return current;
   if (targetId === "sourceDir") return els.sourceDir.value.trim();
   if (targetId === "outputDir") return els.outputDir.value.trim();
+  if (targetId === "repairOutputDir") return els.outputDir.value.trim();
+  if (targetId === "repairLongformImage") return els.repairOutputDir.value.trim() || els.sourceDir.value.trim();
   return els.sourceDir.value.trim();
 }
 
@@ -410,7 +506,9 @@ async function chooseNativePath(button) {
       ? "Source Folder auswählen"
       : targetId === "outputDir"
         ? "Output Folder auswählen oder neu anlegen"
-        : "Bild auswählen";
+        : targetId === "repairOutputDir"
+          ? "Fertigen COMP-Ordner auswählen"
+          : "Bild auswählen";
   try {
     setStatus("Browse");
     const result = await api("/api/dialog/choose", {
@@ -420,7 +518,11 @@ async function chooseNativePath(button) {
     });
     if (result.path) {
       els[targetId].value = result.path;
-      invalidateDryRun();
+      if (targetId === "repairOutputDir" || targetId === "repairLongformImage") {
+        invalidateRepair();
+      } else {
+        invalidateDryRun();
+      }
       if (targetId === "longformImage" || targetId === "shortsImage") {
         autoImages[targetId] = "";
       }
@@ -471,7 +573,11 @@ function closePicker() {
 function selectPickerPath(path) {
   if (!picker.targetId) return;
   els[picker.targetId].value = path;
-  invalidateDryRun();
+  if (picker.targetId === "repairOutputDir" || picker.targetId === "repairLongformImage") {
+    invalidateRepair();
+  } else {
+    invalidateDryRun();
+  }
   closePicker();
   if (picker.targetId === "sourceDir") {
     const last = path.split("/").filter(Boolean).pop();
@@ -501,8 +607,13 @@ async function createFolder() {
 els.loadDefaultsBtn.addEventListener("click", loadDefaults);
 els.scanBtn.addEventListener("click", scan);
 els.renderBtn.addEventListener("click", render);
+els.inspectRepairBtn.addEventListener("click", inspectRepair);
+els.repairLongformBtn.addEventListener("click", repairLongform);
 ["sourceDir", "compId", "title", "outputDir", "longformImage", "shortsImage"].forEach((id) => {
   els[id].addEventListener("input", () => invalidateDryRun());
+});
+["repairOutputDir", "repairLongformImage"].forEach((id) => {
+  els[id].addEventListener("input", () => invalidateRepair());
 });
 ["silenceTrim", "droneScan", "placeholderImages", "moveSourcesAfterRender"].forEach((id) => {
   els[id].addEventListener("change", () => invalidateDryRun());
@@ -601,6 +712,7 @@ els.tracksBody.addEventListener("dragend", () => {
 async function boot() {
   updateTransitionControl();
   setRenderReady(false);
+  setRepairReady(false);
   await loadRuntime();
   await loadDefaults();
 }
@@ -618,6 +730,11 @@ function clearAutoImagesForSourceChange(currentSource) {
     autoImages.longformImage = "";
     autoImages.shortsImage = "";
   }
+}
+
+function invalidateRepair() {
+  setRepairReady(false);
+  els.repairSummary.textContent = "Repair erneut prüfen";
 }
 
 function clearDropState() {

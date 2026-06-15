@@ -58,10 +58,17 @@ export VELVET_PROJECT_ROOT="/Users/jrkavrazli/Documents/Projekte/Music_Publishme
   genau diese Reihenfolge wird fuer Stems, Master-WAV, Tracklist und Shorts
   verwendet.
 - `Render starten` bleibt gesperrt, bis ein Dry-Run ohne Blocker bestanden ist.
+- Nach dem Master-WAV-Build blockiert ein harter Silence-Gate interne Stille
+  ab `0.75s`; Treffer werden in `MASTER_SILENCE_GAPS.tsv` dokumentiert und
+  stoppen MP4/Shorts-Rendering.
 - Render-Job fuer Master-WAV, 16:9-Longform-MP4 und 5 Shorts.
+- Repair-Modus fuer fertige `COMP-ID_Titel`-Ordner: Master-WAV und 16:9-Bild
+  werden erkannt, die Longform-MP4 kann einzeln neu gerendert werden. Eine
+  vorhandene MP4 wird standardmaessig nach `backups/longform/` verschoben.
 - Reports: `DRY_RUN.json`, `TRACKLIST.tsv`, `DRONE_ARTIFACT_REPORT.tsv`,
-  `TRACK_ORDER.tsv`, `AUDIO_VALIDATION.txt`, `VIDEO_VALIDATION.tsv`, `SHORTS_PLAN.tsv`,
-  `SHORTS_VALIDATION.tsv`, `RENDER_SUMMARY.json`, `YOUTUBE_METADATA.md`.
+  `TRACK_ORDER.tsv`, `MASTER_SILENCE_GAPS.tsv`, `AUDIO_VALIDATION.txt`,
+  `VIDEO_VALIDATION.tsv`, `SHORTS_PLAN.tsv`, `SHORTS_VALIDATION.tsv`,
+  `RENDER_SUMMARY.json`, `YOUTUBE_METADATA.md`.
 
 ## V0-Sicherheitsgrenze
 

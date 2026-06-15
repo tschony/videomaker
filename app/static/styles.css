@@ -524,6 +524,30 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.repair-details {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.repair-details code {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1012;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.repair-actions {
+  align-items: center;
+}
+
+.repair-actions .check {
+  margin-right: auto;
+}
+
 .picker-overlay {
   position: fixed;
   inset: 0;
